@@ -8,12 +8,14 @@ import asyncio
 
 load_dotenv() 
 
-# Enabled members intent so the bot can detect when a new user joins
 intents = discord.Intents.default()
 intents.guilds = True
 intents.message_content = True 
 intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+# Global variable to store your custom greeting template dynamically
+saved_welcome_message = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
@@ -96,54 +98,61 @@ async def ticket_panel(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view)
 
 
-# --- UPDATED: /customwelcome with {mention} variable ---
-@bot.tree.command(name="customwelcome", description="Sends a colorless welcome embed using customizable text variables.")
-@app_commands.describe(message="Variables: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
+# Helper function to format the welcome templates cleanly
+def format_welcome_message(template: str, member: discord.Member, guild: discord.Guild) -> discord.Embed:
+    formatted_text = template.replace("{mention}", member.mention)\
+                             .replace("{user}", member.mention)\
+                             .replace("{username}", member.name)\
+                             .replace("{server}", guild.name)\
+                             .replace("{membercount}", str(guild.member_count))
+    
+    # Clean colorless side-bar overlay color
+    embed = discord.Embed(description=formatted_text, color=0x2b2d31)
+    
+    if "{avatar}" in template:
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+    return embed
+
+
+# --- UPDATED: /customwelcome configures & saves the format ---
+@bot.tree.command(name="customwelcome", description="Sets and saves the greeting format for when new members join.")
+@app_commands.describe(message="Set greeting format. Variables: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
 async def customwelcome(interaction: discord.Interaction, message: str):
-    user = interaction.user
-    guild = interaction.guild
-
-    # Added {mention} to formatting (works identically to {user})
-    formatted_msg = message.replace("{mention}", user.mention)\
-                           .replace("{user}", user.mention)\
-                           .replace("{username}", user.name)\
-                           .replace("{server}", guild.name)\
-                           .replace("{membercount}", str(guild.member_count))
-
-    embed = discord.Embed(
-        description=formatted_msg,
-        color=0x2b2d31
+    global saved_welcome_message
+    saved_welcome_message = message  # Saves it into active memory
+    
+    # Generate a live preview for the staff member setting it up
+    preview_embed = format_welcome_message(saved_welcome_message, interaction.user, interaction.guild)
+    
+    await interaction.response.send_message(
+        content="✅ **Welcome message saved!** Here is a live preview of how it will look:", 
+        embed=preview_embed
     )
 
-    if "{avatar}" in message:
-        embed.set_thumbnail(url=user.display_avatar.url)
 
-    await interaction.response.send_message(embed=embed)
+# --- NEW: /testgreet triggers a test message instantly ---
+@bot.tree.command(name="testgreet", description="Tests your configured welcome layout on yourself inside this channel.")
+async def testgreet(interaction: discord.Interaction):
+    # Generates a test copy mimicking a real arrival using your layout profile
+    test_embed = format_welcome_message(saved_welcome_message, interaction.user, interaction.guild)
+    
+    # Sends it directly into the current execution channel context
+    await interaction.response.send_message(content="⚙️ **Running Welcomer Module Test...**", embed=test_embed)
 
 
-# --- NEW: Automated Real-Time Welcome Listener ---
+# --- AUTOMATED LISTENER: Uses the saved welcome message format ---
 @bot.event
 async def on_member_join(member: discord.Member):
-    # Change "welcome" to match the exact name of your server's welcome channel
+    # Searches for a channel matching your welcome terminal layout
     welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
     
     if welcome_channel:
-        # Default automated welcome string template using your variables
-        raw_template = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
+        # Generates the layout using your specific template saved from /customwelcome
+        join_embed = format_welcome_message(saved_welcome_message, member, member.guild)
         
-        formatted_msg = raw_template.replace("{mention}", member.mention)\
-                                    .replace("{user}", member.mention)\
-                                    .replace("{username}", member.name)\
-                                    .replace("{server}", member.guild.name)\
-                                    .replace("{membercount}", str(member.guild.member_count))
-        
-        embed = discord.Embed(
-            description=formatted_msg,
-            color=0x2b2d31
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-        await welcome_channel.send(embed=embed)
+        # Pings the user outside the embed so they get a notification, then sends the colorless embed
+        await welcome_channel.send(content=member.mention, embed=join_embed)
 
 
 # --- !delete ---
