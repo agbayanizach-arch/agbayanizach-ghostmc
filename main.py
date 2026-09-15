@@ -84,7 +84,7 @@ async def on_ready():
 async def ticket_panel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🔷 GhostMC Support",
-        description="Select the type of issue you need help with below.\n\n*Hexoria Network*",
+        description="Select the type of issue you need help with below.\n\n*GhostMC*",
         color=discord.Color.dark_theme()
     )
     
