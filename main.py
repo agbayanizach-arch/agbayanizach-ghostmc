@@ -7,8 +7,10 @@ from dotenv import load_dotenv
 
 load_dotenv() 
 
+# Enabled message_content intent so prefix commands like !delete work perfectly
 intents = discord.Intents.default()
 intents.guilds = True
+intents.message_content = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 class TicketPanelView(discord.ui.View):
@@ -90,6 +92,29 @@ async def ticket_panel(interaction: discord.Interaction):
     
     view = TicketPanelView()
     await interaction.response.send_message(embed=embed, view=view)
+
+# New Feature: /customwelcome <message>
+@bot.tree.command(name="customwelcome", description="Sends a welcome embed message to the current channel without a color border.")
+@app_commands.describe(message="The message content to display inside the welcome embed")
+async def customwelcome(interaction: discord.Interaction, message: str):
+    # Setting color=0x2b2d31 matches the default Discord dark mode background, hiding the left border color
+    embed = discord.Embed(
+        description=message,
+        color=0x2b2d31
+    )
+    await interaction.response.send_message(embed=embed)
+
+# New Feature: !delete
+@bot.command(name="delete")
+async def delete_ticket(ctx):
+    # Optional safety check: ensures it only deletes channels within the TICKETS category or named ticket-*
+    if ctx.channel.category and ctx.channel.category.name == "🎟️ TICKETS" or ctx.channel.name.startswith("ticket-"):
+        await ctx.send("🗑️ This ticket channel will be deleted in 5 seconds...")
+        import asyncio
+        await asyncio.sleep(5)
+        await ctx.channel.delete()
+    else:
+        await ctx.send("❌ This command can only be used inside a ticket channel.")
 
 if __name__ == "__main__":
     keep_alive() 
