@@ -4,13 +4,15 @@ from discord.ext import commands
 import os
 from keep_alive import keep_alive
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv() 
 
-# Enabled message_content intent so prefix commands like !delete work perfectly
+# Enabled members intent so the bot can detect when a new user joins
 intents = discord.Intents.default()
 intents.guilds = True
 intents.message_content = True 
+intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 class TicketPanelView(discord.ui.View):
@@ -93,24 +95,62 @@ async def ticket_panel(interaction: discord.Interaction):
     view = TicketPanelView()
     await interaction.response.send_message(embed=embed, view=view)
 
-# New Feature: /customwelcome <message>
-@bot.tree.command(name="customwelcome", description="Sends a welcome embed message to the current channel without a color border.")
-@app_commands.describe(message="The message content to display inside the welcome embed")
+
+# --- UPDATED: /customwelcome with {mention} variable ---
+@bot.tree.command(name="customwelcome", description="Sends a colorless welcome embed using customizable text variables.")
+@app_commands.describe(message="Variables: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
 async def customwelcome(interaction: discord.Interaction, message: str):
-    # Setting color=0x2b2d31 matches the default Discord dark mode background, hiding the left border color
+    user = interaction.user
+    guild = interaction.guild
+
+    # Added {mention} to formatting (works identically to {user})
+    formatted_msg = message.replace("{mention}", user.mention)\
+                           .replace("{user}", user.mention)\
+                           .replace("{username}", user.name)\
+                           .replace("{server}", guild.name)\
+                           .replace("{membercount}", str(guild.member_count))
+
     embed = discord.Embed(
-        description=message,
+        description=formatted_msg,
         color=0x2b2d31
     )
+
+    if "{avatar}" in message:
+        embed.set_thumbnail(url=user.display_avatar.url)
+
     await interaction.response.send_message(embed=embed)
 
-# New Feature: !delete
+
+# --- NEW: Automated Real-Time Welcome Listener ---
+@bot.event
+async def on_member_join(member: discord.Member):
+    # Change "welcome" to match the exact name of your server's welcome channel
+    welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
+    
+    if welcome_channel:
+        # Default automated welcome string template using your variables
+        raw_template = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
+        
+        formatted_msg = raw_template.replace("{mention}", member.mention)\
+                                    .replace("{user}", member.mention)\
+                                    .replace("{username}", member.name)\
+                                    .replace("{server}", member.guild.name)\
+                                    .replace("{membercount}", str(member.guild.member_count))
+        
+        embed = discord.Embed(
+            description=formatted_msg,
+            color=0x2b2d31
+        )
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+        await welcome_channel.send(embed=embed)
+
+
+# --- !delete ---
 @bot.command(name="delete")
 async def delete_ticket(ctx):
-    # Optional safety check: ensures it only deletes channels within the TICKETS category or named ticket-*
     if ctx.channel.category and ctx.channel.category.name == "🎟️ TICKETS" or ctx.channel.name.startswith("ticket-"):
         await ctx.send("🗑️ This ticket channel will be deleted in 5 seconds...")
-        import asyncio
         await asyncio.sleep(5)
         await ctx.channel.delete()
     else:
