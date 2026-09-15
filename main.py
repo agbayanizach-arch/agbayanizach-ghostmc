@@ -42,7 +42,7 @@ async def on_ready():
 async def ticket_panel(interaction: discord.Interaction):
     # Constructing matching embed properties from reference UI layout
     embed = discord.Embed(
-        title="🔷 Hexoria Support",
+        title="🔷 GhostMC Support",
         description="Select the type of issue you need help with below.\n\n*Hexoria Network*",
         color=discord.Color.dark_theme()
     )
