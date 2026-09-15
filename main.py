@@ -8,29 +8,44 @@ import asyncio
 
 load_dotenv() 
 
-# 1. Verification of Intents (Ensure both are enabled in Discord Developer Portal)
+# Intents are configured correctly. Make sure BOTH 'Message Content' and 'Server Members'
+# are toggled ON in your Discord Developer Portal!
 intents = discord.Intents.default()
 intents.guilds = True
 intents.message_content = True 
 intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-CONFIG_FILE = "welcome_config.txt"
+# File names for persistent local configuration storage
+MESSAGE_FILE = "welcome_msg.txt"
+CHANNEL_FILE = "welcome_channel.txt"
 DEFAULT_TEMPLATE = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
 
-# Helper function to load configuration persistently from a file
-def load_welcome_message():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            return f.read()
-    return DEFAULT_TEMPLATE
+# Persistent data managers
+def load_welcome_config():
+    msg = DEFAULT_TEMPLATE
+    chan_id = None
+    
+    if os.path.exists(MESSAGE_FILE):
+        with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
+            msg = f.read()
+            
+    if os.path.exists(CHANNEL_FILE):
+        with open(CHANNEL_FILE, "r", encoding="utf-8") as f:
+            try:
+                chan_id = int(f.read().strip())
+            except ValueError:
+                chan_id = None
+                
+    return msg, chan_id
 
-# Helper function to save configuration persistently to a file
-def save_welcome_message(text):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        f.write(text)
+def save_welcome_config(message, channel_id):
+    with open(MESSAGE_FILE, "w", encoding="utf-8") as f:
+        f.write(message)
+    with open(CHANNEL_FILE, "w", encoding="utf-8") as f:
+        f.write(str(channel_id))
 
-# Helper function to format the welcome templates cleanly
+# Universal compiler to format custom layouts seamlessly
 def format_welcome_message(template: str, member: discord.Member, guild: discord.Guild) -> discord.Embed:
     formatted_text = template.replace("{mention}", member.mention)\
                              .replace("{user}", member.mention)\
@@ -38,7 +53,7 @@ def format_welcome_message(template: str, member: discord.Member, guild: discord
                              .replace("{server}", guild.name)\
                              .replace("{membercount}", str(guild.member_count))
     
-    # Clean colorless side-bar overlay color
+    # 0x2b2d31 removes the visible border accent on standard Dark Theme layouts
     embed = discord.Embed(description=formatted_text, color=0x2b2d31)
     
     if "{avatar}" in template:
@@ -127,43 +142,46 @@ async def ticket_panel(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view)
 
 
-# --- FIXED: /customwelcome configures & persistently saves the format ---
-@bot.tree.command(name="customwelcome", description="Sets and saves the greeting format for when new members join.")
-@app_commands.describe(message="Set greeting format. Variables: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
+# --- FIXED: /customwelcome now locks and saves the exact active channel context ---
+@bot.tree.command(name="customwelcome", description="Saves configuration template and locks greetings to this current channel.")
+@app_commands.describe(message="Set greeting template. Vars: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
 async def customwelcome(interaction: discord.Interaction, message: str):
-    save_welcome_message(message)  # Saves it to file configuration storage
+    # Dynamically locks greeting tasks to the channel where you typed this command
+    save_welcome_config(message, interaction.channel_id)
     
     preview_embed = format_welcome_message(message, interaction.user, interaction.guild)
     await interaction.response.send_message(
-        content="✅ **Welcome message saved permanently!** Here is a live preview of how it will look:", 
+        content=f"✅ **Welcome message saved!** Greetings are now locked to {interaction.channel.mention}. Live preview:", 
         embed=preview_embed
     )
 
 
-# --- /testgreet triggers a test message instantly ---
-@bot.tree.command(name="testgreet", description="Tests your configured welcome layout on yourself inside this channel.")
+# --- NEW: /testgreet pulls saved layout data ---
+@bot.tree.command(name="testgreet", description="Tests your saved layout on yourself directly inside this channel.")
 async def testgreet(interaction: discord.Interaction):
-    current_template = load_welcome_message()
-    test_embed = format_welcome_message(current_template, interaction.user, interaction.guild)
+    template, _ = load_welcome_config()
+    test_embed = format_welcome_message(template, interaction.user, interaction.guild)
     await interaction.response.send_message(content="⚙️ **Running Welcomer Module Test...**", embed=test_embed)
 
 
-# --- FIXED AUTOMATED LISTENER: Loads file template + attempts broader room detection ---
+# --- FIXED AUTOMATED LISTENER: Instantly triggers via persistent target ID ---
 @bot.event
 async def on_member_join(member: discord.Member):
-    # Bug Check: Find channel named "welcome", "welcomes", or "welcome-log"
-    welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
+    template, target_channel_id = load_welcome_config()
+    
+    # Resolves target text delivery terminal dynamically via stored configuration data
+    welcome_channel = member.guild.get_channel(target_channel_id) if target_channel_id else None
+    
+    # Fallback to general safety room array check if file registration lookup fails
     if not welcome_channel:
-        welcome_channel = discord.utils.get(member.guild.text_channels, name="welcomes")
+        welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
 
     if welcome_channel:
-        current_template = load_welcome_message()
-        join_embed = format_welcome_message(current_template, member, member.guild)
-        
-        # Sends text mention message alongside the graphic colorless embed profile sheet
+        join_embed = format_welcome_message(template, member, member.guild)
+        # Directly pings user externally first to register notification, followed by layout panel injection
         await welcome_channel.send(content=member.mention, embed=join_embed)
     else:
-        print(f"CRITICAL: Could not automatically greet {member.name} because no text channel named 'welcome' was found.")
+        print(f"CRITICAL: Failed to greet {member.name}. Setup a channel first with /customwelcome.")
 
 
 # --- !delete ---
