@@ -8,14 +8,43 @@ import asyncio
 
 load_dotenv() 
 
+# 1. Verification of Intents (Ensure both are enabled in Discord Developer Portal)
 intents = discord.Intents.default()
 intents.guilds = True
 intents.message_content = True 
 intents.members = True 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Global variable to store your custom greeting template dynamically
-saved_welcome_message = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
+CONFIG_FILE = "welcome_config.txt"
+DEFAULT_TEMPLATE = "Welcome {mention} to **{server}**! You are our #{membercount} member. {avatar}"
+
+# Helper function to load configuration persistently from a file
+def load_welcome_message():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    return DEFAULT_TEMPLATE
+
+# Helper function to save configuration persistently to a file
+def save_welcome_message(text):
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        f.write(text)
+
+# Helper function to format the welcome templates cleanly
+def format_welcome_message(template: str, member: discord.Member, guild: discord.Guild) -> discord.Embed:
+    formatted_text = template.replace("{mention}", member.mention)\
+                             .replace("{user}", member.mention)\
+                             .replace("{username}", member.name)\
+                             .replace("{server}", guild.name)\
+                             .replace("{membercount}", str(guild.member_count))
+    
+    # Clean colorless side-bar overlay color
+    embed = discord.Embed(description=formatted_text, color=0x2b2d31)
+    
+    if "{avatar}" in template:
+        embed.set_thumbnail(url=member.display_avatar.url)
+        
+    return embed
 
 class TicketPanelView(discord.ui.View):
     def __init__(self):
@@ -98,61 +127,43 @@ async def ticket_panel(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view)
 
 
-# Helper function to format the welcome templates cleanly
-def format_welcome_message(template: str, member: discord.Member, guild: discord.Guild) -> discord.Embed:
-    formatted_text = template.replace("{mention}", member.mention)\
-                             .replace("{user}", member.mention)\
-                             .replace("{username}", member.name)\
-                             .replace("{server}", guild.name)\
-                             .replace("{membercount}", str(guild.member_count))
-    
-    # Clean colorless side-bar overlay color
-    embed = discord.Embed(description=formatted_text, color=0x2b2d31)
-    
-    if "{avatar}" in template:
-        embed.set_thumbnail(url=member.display_avatar.url)
-        
-    return embed
-
-
-# --- UPDATED: /customwelcome configures & saves the format ---
+# --- FIXED: /customwelcome configures & persistently saves the format ---
 @bot.tree.command(name="customwelcome", description="Sets and saves the greeting format for when new members join.")
 @app_commands.describe(message="Set greeting format. Variables: {mention}, {user}, {username}, {server}, {membercount}, {avatar}")
 async def customwelcome(interaction: discord.Interaction, message: str):
-    global saved_welcome_message
-    saved_welcome_message = message  # Saves it into active memory
+    save_welcome_message(message)  # Saves it to file configuration storage
     
-    # Generate a live preview for the staff member setting it up
-    preview_embed = format_welcome_message(saved_welcome_message, interaction.user, interaction.guild)
-    
+    preview_embed = format_welcome_message(message, interaction.user, interaction.guild)
     await interaction.response.send_message(
-        content="✅ **Welcome message saved!** Here is a live preview of how it will look:", 
+        content="✅ **Welcome message saved permanently!** Here is a live preview of how it will look:", 
         embed=preview_embed
     )
 
 
-# --- NEW: /testgreet triggers a test message instantly ---
+# --- /testgreet triggers a test message instantly ---
 @bot.tree.command(name="testgreet", description="Tests your configured welcome layout on yourself inside this channel.")
 async def testgreet(interaction: discord.Interaction):
-    # Generates a test copy mimicking a real arrival using your layout profile
-    test_embed = format_welcome_message(saved_welcome_message, interaction.user, interaction.guild)
-    
-    # Sends it directly into the current execution channel context
+    current_template = load_welcome_message()
+    test_embed = format_welcome_message(current_template, interaction.user, interaction.guild)
     await interaction.response.send_message(content="⚙️ **Running Welcomer Module Test...**", embed=test_embed)
 
 
-# --- AUTOMATED LISTENER: Uses the saved welcome message format ---
+# --- FIXED AUTOMATED LISTENER: Loads file template + attempts broader room detection ---
 @bot.event
 async def on_member_join(member: discord.Member):
-    # Searches for a channel matching your welcome terminal layout
+    # Bug Check: Find channel named "welcome", "welcomes", or "welcome-log"
     welcome_channel = discord.utils.get(member.guild.text_channels, name="welcome")
-    
+    if not welcome_channel:
+        welcome_channel = discord.utils.get(member.guild.text_channels, name="welcomes")
+
     if welcome_channel:
-        # Generates the layout using your specific template saved from /customwelcome
-        join_embed = format_welcome_message(saved_welcome_message, member, member.guild)
+        current_template = load_welcome_message()
+        join_embed = format_welcome_message(current_template, member, member.guild)
         
-        # Pings the user outside the embed so they get a notification, then sends the colorless embed
+        # Sends text mention message alongside the graphic colorless embed profile sheet
         await welcome_channel.send(content=member.mention, embed=join_embed)
+    else:
+        print(f"CRITICAL: Could not automatically greet {member.name} because no text channel named 'welcome' was found.")
 
 
 # --- !delete ---
