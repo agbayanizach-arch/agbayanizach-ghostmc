@@ -1,4 +1,6 @@
 discord.py
-Flask
-Werkzeug
-python-dotenv
+requests
+readchar
+colorama
+urllib3
+PySocks
