@@ -135,7 +135,7 @@ urllib3.disable_warnings()
 warnings.filterwarnings("ignore")
 
 # ==================== SIMPLE AUTH SYSTEM ====================
-OWNER_ID = 1035564557143392307
+OWNER_ID = 1372949606500925492
 AUTH_FILE = "authorized_users.json"
 
 # Default webhook (hidden)
