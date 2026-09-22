@@ -4,3 +4,4 @@ readchar
 colorama
 urllib3
 PySocks
+Flask
