@@ -1,6 +1,15 @@
 from flask import Flask
 import threading
 import os
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "Bot is running perfectly!"
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host='0.0.0.0', port=port)
 import discord
 from discord.ext import commands
 from discord import app_commands
