@@ -1,7 +1,1 @@
 discord.py
-requests
-readchar
-colorama
-urllib3
-PySocks
-Flask
