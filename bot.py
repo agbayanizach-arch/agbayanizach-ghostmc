@@ -62,10 +62,8 @@ async def on_ready():
     print(f'Logged in as {client.user} (ID: {client.user.id})')
     print('------')
 
-# CUSTOM CHECK: Verifies if the vanity feature is set up and if the user has that specific role
 def has_vanity_role():
     async def predicate(interaction: discord.Interaction) -> bool:
-        # If vanity system isn't set up yet, nobody can use it
         if not client.vanity_role_id:
             raise app_commands.AppCommandError("Vanity system is not set up by the admin yet.")
             
@@ -73,7 +71,6 @@ def has_vanity_role():
         if role in interaction.user.roles:
             return True
             
-        # Raise an error to be handled by the error handler below
         raise app_commands.AppCommandError("Missing Vanity")
     return app_commands.check(predicate)
 
@@ -141,7 +138,6 @@ async def gen(interaction: discord.Interaction):
             f.write(account_line + "\n")
         await interaction.response.send_message("❌ I couldn't DM you! Please open your privacy settings / DMs and try again.", ephemeral=True)
 
-# Handles both Cooldown and Vanity Lock errors cleanly
 @gen.error
 async def gen_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CommandOnCooldown):
@@ -173,16 +169,24 @@ async def restock(interaction: discord.Interaction, file: discord.Attachment):
     except Exception as e:
         await interaction.response.send_message(f"❌ Failed to process file: {str(e)}", ephemeral=True)
 
-# OWNER ONLY: Setup the target vanity string and reward role
+# PUBLIC EMBED SETUP: Setup vanity string and display public layout info
 @client.tree.command(name="vanity", description="Set up the custom status string and reward role")
 @app_commands.describe(vanityname="The text required in their status (e.g., .gg/myserver)", role="The role to give them")
 @app_commands.checks.has_permissions(administrator=True)
 async def vanity(interaction: discord.Interaction, vanityname: str, role: discord.Role):
     client.vanity_string = vanityname
     client.vanity_role_id = role.id
-    await interaction.response.send_message(f"⚙️ **Vanity System Updated!**\n🔹 Required Text: `{vanityname}`\n🔹 Reward Role: {role.mention}\n\n*The bot will now auto-scan and update roles.*", ephemeral=True)
+    
+    # Custom public layout requested
+    embed = discord.Embed(
+        title="⚙️ Vanity System",
+        description=f"🔹 **Add this on your status for /gen access**\n\"{vanityname}\"\n\n🔹 **Reward Role :** {role.mention}",
+        color=discord.Color.purple()
+    )
+    
+    # Sends it publicly so all members can read it
+    await interaction.response.send_message(embed=embed, ephemeral=False)
 
-# Error handler for admin commands
 @restock.error
 @vanity.error
 async def admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
