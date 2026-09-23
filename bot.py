@@ -74,7 +74,6 @@ def has_vanity_role():
         raise app_commands.AppCommandError("Missing Vanity")
     return app_commands.check(predicate)
 
-# ALLOWED FOR EVERYONE: Check stock
 @client.tree.command(name="stock", description="Check the number of available accounts in stock")
 async def stock(interaction: discord.Interaction):
     if not os.path.exists(ACCOUNTS_FILE) or os.stat(ACCOUNTS_FILE).st_size == 0:
@@ -92,7 +91,6 @@ async def stock(interaction: discord.Interaction):
     embed.set_footer(text="Use /gen to get an account")
     await interaction.response.send_message(embed=embed)
 
-# RESTRICTED: Requires vanity status role + 2-minute cooldown
 @client.tree.command(name="gen", description="Generate a Minecraft account sent directly to your DM")
 @has_vanity_role()
 @app_commands.checks.cooldown(1, 120.0, key=lambda i: i.user.id)
@@ -148,7 +146,6 @@ async def gen_error(interaction: discord.Interaction, error: app_commands.AppCom
     else:
         await interaction.response.send_message(f"❌ {str(error)}", ephemeral=True)
 
-# OWNER ONLY: Restock system
 @client.tree.command(name="restock", description="Restock accounts using a text file")
 @app_commands.describe(file="Upload the txt file containing email:pass accounts")
 @app_commands.checks.has_permissions(administrator=True)
@@ -169,22 +166,19 @@ async def restock(interaction: discord.Interaction, file: discord.Attachment):
     except Exception as e:
         await interaction.response.send_message(f"❌ Failed to process file: {str(e)}", ephemeral=True)
 
-# PUBLIC EMBED SETUP: Setup vanity string and display public layout info
 @client.tree.command(name="vanity", description="Set up the custom status string and reward role")
-@app_commands.describe(vanityname="The text required in their status (e.g., .gg/myserver)", role="The role to give them")
+@app_commands.describe(vanityname="The text required in their status", role="The role to give them")
 @app_commands.checks.has_permissions(administrator=True)
 async def vanity(interaction: discord.Interaction, vanityname: str, role: discord.Role):
     client.vanity_string = vanityname
     client.vanity_role_id = role.id
     
-    # Custom public layout requested
     embed = discord.Embed(
         title="⚙️ Vanity System",
-        description=f"🔹 **Add this on your status for /gen access**\n\"{vanityname}\"\n\n🔹 **Reward Role :** {role.mention}",
+        description=f"🔹 **Add this on your status for /gen access**\n`{vanityname}`\n\n🔹 **Reward Role :** {role.mention}",
         color=discord.Color.purple()
     )
     
-    # Sends it publicly so all members can read it
     await interaction.response.send_message(embed=embed, ephemeral=False)
 
 @restock.error
