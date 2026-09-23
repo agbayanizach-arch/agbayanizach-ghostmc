@@ -1,0 +1,7 @@
+# Keep your account stock safe from being overwritten or made public
+accounts.txt
+
+# Python environment files
+__pycache__/
+*.pyc
+.env
