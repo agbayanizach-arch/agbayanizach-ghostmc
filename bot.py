@@ -1,196 +1,146 @@
 import discord
 from discord import app_commands
-import os
-from datetime import datetime
+from discord.ext import commands
 import asyncio
-from keep_alive import keep_alive
+import datetime
 
-class AccountBot(discord.Client):
+# CONFIGURATION: Replace with your actual Vouch Channel ID
+VOUCH_CHANNEL_ID = 123456789012345678  
+
+class MyBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.members = True
-        intents.presences = True
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
-        
-        self.vanity_string = None
-        self.vanity_role_id = None
+        intents.message_content = True  # Required to read messages and mentions
+        intents.members = True          # Required for timeouts
+        super().__init__(command_prefix="!", intents=intents)
 
     async def setup_hook(self):
+        # Syncs the slash commands globally across all your servers
         await self.tree.sync()
-        self.loop.create_task(self.check_vanity_statuses())
 
-    async def check_vanity_statuses(self):
-        await self.wait_until_ready()
-        while not self.is_closed():
-            if self.vanity_string and self.vanity_role_id:
-                for guild in self.guilds:
-                    role = guild.get_role(self.vanity_role_id)
-                    if not role:
-                        continue
-                    
-                    for member in guild.members:
-                        if member.bot:
-                            continue
-                        
-                        has_vanity = False
-                        for activity in member.activities:
-                            if isinstance(activity, discord.CustomActivity) and activity.name:
-                                if self.vanity_string in activity.name:
-                                    has_vanity = True
-                                    break
-                        
-                        try:
-                            if has_vanity and role not in member.roles:
-                                await member.add_roles(role)
-                                print(f"Added vanity role to {member.name}")
-                            elif not has_vanity and role in member.roles:
-                                await member.remove_roles(role)
-                                print(f"Removed vanity role from {member.name}")
-                        except discord.Forbidden:
-                            print(f"Missing permissions to manage roles in {guild.name}")
-                        except Exception as e:
-                            print(f"Error updating role for {member.name}: {e}")
-            
-            await asyncio.sleep(10)
+bot = MyBot()
 
-client = AccountBot()
-ACCOUNTS_FILE = "accounts.txt"
+# Dictionary to track payouts: { Target_User_ID: { "payouter_id": ID, "completed": False } }
+pending_payouts = {}
 
-@client.event
+@bot.event
 async def on_ready():
-    print(f'Logged in as {client.user} (ID: {client.user.id})')
-    print('------')
+    print(f'Bot is ready. Logged in as {bot.user.name}')
 
-def has_vanity_role():
-    async def predicate(interaction: discord.Interaction) -> bool:
-        if not client.vanity_role_id:
-            raise app_commands.AppCommandError("Vanity system is not set up by the admin yet.")
-            
-        role = interaction.guild.get_role(client.vanity_role_id)
-        if role in interaction.user.roles:
-            return True
-            
-        raise app_commands.AppCommandError("Missing Vanity")
-    return app_commands.check(predicate)
-
-@client.tree.command(name="stock", description="Check the number of available accounts in stock")
-async def stock(interaction: discord.Interaction):
-    if not os.path.exists(ACCOUNTS_FILE) or os.stat(ACCOUNTS_FILE).st_size == 0:
-        count = 0
-    else:
-        with open(ACCOUNTS_FILE, "r") as f:
-            lines = f.readlines()
-        count = len([line for line in lines if ":" in line])
-
-    embed = discord.Embed(
-        title="📦 Current Account Stock",
-        description=f"There are currently **{count}** Minecraft accounts available to generate!",
-        color=discord.Color.blue() if count > 0 else discord.Color.red()
-    )
-    embed.set_footer(text="Use /gen to get an account")
-    await interaction.response.send_message(embed=embed)
-
-@client.tree.command(name="gen", description="Generate a Minecraft account sent directly to your DM")
-@has_vanity_role()
-@app_commands.checks.cooldown(1, 120.0, key=lambda i: i.user.id)
-async def gen(interaction: discord.Interaction):
-    if not os.path.exists(ACCOUNTS_FILE) or os.stat(ACCOUNTS_FILE).st_size == 0:
-        await interaction.response.send_message("❌ Out of stock! Please ask an admin to restock.", ephemeral=True)
+@bot.tree.command(name="gen", description="Generate a payout and send credentials via DM.")
+@app_commands.describe(
+    target_user="The member receiving the payout",
+    credentials="The login details in email:pass format"
+)
+async def gen(interaction: discord.Interaction, target_user: discord.Member, credentials: str):
+    # 1. Validate credentials format
+    if ":" not in credentials or len(credentials.split(":")) != 2:
+        await interaction.response.send_message("❌ **Invalid Format.** Use `email:pass` without spaces.", ephemeral=True)
         return
 
-    with open(ACCOUNTS_FILE, "r") as f:
-        lines = f.readlines()
+    email, password = credentials.split(":")
+    formatted_payload = f"{email}:{password}"
 
-    account_line = None
-    for line in lines:
-        if ":" in line:
-            account_line = line.strip()
-            break
-
-    if not account_line:
-        await interaction.response.send_message("❌ Out of stock or invalid file format! Please restock.", ephemeral=True)
-        return
-
-    lines.remove(account_line + "\n" if account_line + "\n" in lines else account_line)
-    with open(ACCOUNTS_FILE, "w") as f:
-        f.writelines(lines)
-
-    email, password = account_line.split(":", 1)
-
-    embed = discord.Embed(
-        title="Minecraft Account Generated",
-        color=discord.Color.green()
-    )
-    embed.add_field(name="📩Email", value=f"`{email}`", inline=True)
-    embed.add_field(name="🔓Password", value=f"`{password}`", inline=True)
-    
-    current_time = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')
-    embed.set_footer(text=f"Free Account • {current_time}")
-
+    # 2. Try sending the credentials to the user's DMs
     try:
-        await interaction.user.send(embed=embed)
-        await interaction.response.send_message("📬 Your account has been sent to your DMs!", ephemeral=True)
+        await target_user.send(
+            f"📦 **Your Account Has Been Generated!**\n"
+            f"Format: `email:pass`\n\n"
+            f"`{formatted_payload}`\n\n"
+            f"⚠️ **IMPORTANT:** You have **5 minutes** to leave a vouch mentioning your payouter in <#{VOUCH_CHANNEL_ID}>, or you will be automatically timed out for 1 hour!"
+        )
+        
+        # 3. Save tracking details (pings the staff member who used the slash command)
+        pending_payouts[target_user.id] = {
+            "payouter_id": interaction.user.id,
+            "completed": False
+        }
+        
+        # Public hidden confirmation message (only visible to the staff who typed the command)
+        await interaction.response.send_message(f"✅ Credentials securely DM'd to {target_user.mention}. Countdown started.", ephemeral=True)
+        
+        # 4. Start the 5-minute background countdown task (300 seconds)
+        asyncio.create_task(payout_timeout_timer(interaction.channel, target_user))
+        
     except discord.Forbidden:
-        with open(ACCOUNTS_FILE, "a") as f:
-            f.write(account_line + "\n")
-        await interaction.response.send_message("❌ I couldn't DM you! Please open your privacy settings / DMs and try again.", ephemeral=True)
+        await interaction.response.send_message(f"❌ **Error:** Cannot DM {target_user.mention}. Their DMs are closed.", ephemeral=True)
 
-@gen.error
-async def gen_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CommandOnCooldown):
-        await interaction.response.send_message(f"⏳ Slow down! You can generate another account in **{error.retry_after:.1f}** seconds.", ephemeral=True)
-    elif "Missing Vanity" in str(error):
-        status_text = f"`{client.vanity_string}`" if client.vanity_string else "the server vanity"
-        await interaction.response.send_message(f"❌ **Access Denied!** You must put {status_text} in your custom status to unlock this command.", ephemeral=True)
-    else:
-        await interaction.response.send_message(f"❌ {str(error)}", ephemeral=True)
+async def payout_timeout_timer(channel, target_user: discord.Member):
+    """Waits 5 minutes, then checks if the user vouched in the designated channel."""
+    await asyncio.sleep(300)  
+    
+    if target_user.id in pending_payouts and not pending_payouts[target_user.id]["completed"]:
+        payouter_id = pending_payouts[target_user.id]["payouter_id"]
+        vouch_channel = bot.get_channel(VOUCH_CHANNEL_ID)
+        
+        vouch_found = False
+        
+        # Check back in the vouch channel history to double check if they tagged you
+        if vouch_channel:
+            try:
+                async for message in vouch_channel.history(limit=50):
+                    if message.author.id == target_user.id:
+                        if any(mention.id == payouter_id for mention in message.mentions):
+                            vouch_found = True
+                            break
+            except Exception as e:
+                print(f"Error checking channel history: {e}")
 
-@client.tree.command(name="restock", description="Restock accounts using a text file")
-@app_commands.describe(file="Upload the txt file containing email:pass accounts")
-@app_commands.checks.has_permissions(administrator=True)
-async def restock(interaction: discord.Interaction, file: discord.Attachment):
-    if not file.filename.endswith('.txt'):
-        await interaction.response.send_message("❌ Please upload a valid `.txt` file.", ephemeral=True)
+        # If they left a valid vouch tagging you, close cleanly
+        if vouch_found:
+            del pending_payouts[target_user.id]
+            await channel.send(
+                f"🔒 **Transaction Closed!**\n"
+                f"User {target_user.mention} successfully vouched in <#{VOUCH_CHANNEL_ID}>.\n"
+                f"Generator Staff: <@{payouter_id}>"
+            )
+            return
+
+        # If they failed to vouch, apply the 1-hour timeout
+        del pending_payouts[target_user.id]
+        try:
+            duration = datetime.timedelta(hours=1)
+            await target_user.timeout(duration, reason="Failed to vouch in the designated channel within 5 minutes of /gen.")
+            
+            await channel.send(
+                f"⏰ **Time's Up!**\n"
+                f"User {target_user.mention} did not vouch in <#{VOUCH_CHANNEL_ID}> within 5 minutes.\n"
+                f"They have been **timed out for 1 hour**.\n"
+                f"Staff Notified: <@{payouter_id}>"
+            )
+        except discord.Forbidden:
+            await channel.send(
+                f"⏰ **Time's Up!**\n"
+                f"User {target_user.mention} failed to vouch, but the bot lacks permission to timeout this user.\n"
+                f"Staff Notified: <@{payouter_id}>"
+            )
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
         return
 
-    try:
-        content = await file.read()
-        text_content = content.decode("utf-8")
+    user_id = message.author.id
 
-        with open(ACCOUNTS_FILE, "a") as f:
-            f.write(text_content + "\n")
+    # If they type directly in the Vouch Channel and tag the payouter, close it immediately
+    if message.channel.id == VOUCH_CHANNEL_ID and user_id in pending_payouts:
+        payouter_id = pending_payouts[user_id]["payouter_id"]
+        
+        if any(mention.id == payouter_id for mention in message.mentions):
+            pending_payouts[user_id]["completed"] = True
+            del pending_payouts[user_id]
+            
+            await message.channel.send(
+                f"🔒 **Transaction Closed!**\n"
+                f"Vouch confirmed for {message.author.mention}.\n"
+                f"Generator Staff: <@{payouter_id}>"
+            )
+            try:
+                await message.add_reaction("✅")
+            except discord.Forbidden:
+                pass
 
-        lines_count = len([l for l in text_content.splitlines() if ":" in l])
-        await interaction.response.send_message(f"✅ Successfully restocked **{lines_count}** accounts!", ephemeral=True)
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Failed to process file: {str(e)}", ephemeral=True)
+    await bot.process_commands(message)
 
-@client.tree.command(name="vanity", description="Set up the custom status string and reward role")
-@app_commands.describe(vanityname="The text required in their status", role="The role to give them")
-@app_commands.checks.has_permissions(administrator=True)
-async def vanity(interaction: discord.Interaction, vanityname: str, role: discord.Role):
-    client.vanity_string = vanityname
-    client.vanity_role_id = role.id
-    
-    embed = discord.Embed(
-        title="⚙️ Vanity System",
-        description=f"🔹 **Add this on your status for /gen access**\n`{vanityname}`\n\n🔹 **Reward Role :** {role.mention}",
-        color=discord.Color.purple()
-    )
-    
-    await interaction.response.send_message(embed=embed, ephemeral=False)
-
-@restock.error
-@vanity.error
-async def admin_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Only server administrators/owners can use this configuration command.", ephemeral=True)
-
-keep_alive()
-
-TOKEN = os.getenv("DISCORD_TOKEN")
-if TOKEN:
-    client.run(TOKEN)
-else:
-    print("Error: DISCORD_TOKEN environment variable not found.")
+# Replace with your actual secure bot token
+bot.run('YOUR_BOT_TOKEN_HERE')
