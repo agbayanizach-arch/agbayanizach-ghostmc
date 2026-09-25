@@ -1,7 +1,16 @@
-# Keep your account stock safe from being overwritten or made public
-accounts.txt
+# Ignore local environment variable files
+.env
 
-# Python environment files
+# Ignore SQLite databases (so your data doesn't get wiped on updates)
+*.db
+users.db
+
+# Ignore Python background runtime files
 __pycache__/
 *.pyc
-.env
+cogs/__pycache__/
+utils/__pycache__/
+
+# Ignore temporary system or text logs
+*.log
+.DS_Store
